@@ -1,4 +1,4 @@
-# STUB: 4-current STN model (Na, K, T, Leak) + SK-type AHP — NO CODE YET
+# STUB: 4-current STN model (Na, K, T, Leak) + SK-type AHP
 # Expose: init(params), state dict, advance(dt), get_observables()
 
 # stn_light_hh.py
