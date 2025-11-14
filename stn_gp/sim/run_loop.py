@@ -133,7 +133,7 @@ def main():
 
     # manifest
     manifest = {
-        "module": "stn_gpi",  # historical module name; leave as-is for now
+        "module": "stn_gp",
         "run_id": run_id,
         "dt_ms": dt_ms,
         "fs_hz": fs_hz,
@@ -213,8 +213,6 @@ def main():
     print(f"   Saved to: {out_base}")
     print("   Figures: raster.png, psd.png")
     print("   Arrays:  V_stn.npy, V_gpe.npy, spikes_stn.npy, spikes_gpe.npy")
-    print("\nUpload to GCS with:")
-    print(f"  python3 ~/cbgtc_project/upload_run.py {out_base} stn_gpe")
 
 if __name__ == "__main__":
     main()
