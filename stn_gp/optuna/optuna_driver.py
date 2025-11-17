@@ -176,8 +176,9 @@ def main():
 
     print(f"📁 Study DB = {db_path}")
 
+    ####### MAIN EDIT #######
     # Run optimization
-    study.optimize(objective, n_trials=50, show_progress_bar=True)
+    study.optimize(objective, n_trials=5, show_progress_bar=True)
 
     # Print results
     print("\n=== BEST TRIAL ===")
