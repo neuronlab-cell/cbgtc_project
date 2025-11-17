@@ -1,170 +1,198 @@
 # optuna_driver.py
-# Driver for optimization studies involving the STN–GPe model.
+# Main orchestration script for δ-paired parameter optimization using Optuna.
 #
 # Responsibilities:
-#   • Define optuna-compatible objective wrapper
-#   • Sample parameter sets from Optuna trial
-#   • Run a single simulation via sim_api.run_simulation()
-#   • Feed results into objectives.stn_gpe_beta_objective
-#   • Manage study, storage, and logging
+#   • Define parameter search space (θ)
+#   • Run two simulations per trial: δ=0 (normal), δ=1 (PD)
+#   • Score both with objectives.py
+#   • Return combined score to Optuna
+#   • Save best parameters + study metadata
 #
-# Non-responsibilities:
-#   • Detailed simulation logic (delegated to sim_api)
-#   • PSD, firing rate, or scoring math (delegated to objectives)
-
+# How to run (on AWS EC2 with venv active):
+#   cd ~/cbgtc_project
+#   source .venv/bin/activate
+#   python -m stn_gp.optuna.optuna_driver
 
 from __future__ import annotations
-
+import json
+from pathlib import Path
 import optuna
-from typing import Dict, Any, Optional
+import numpy as np
 
-from stn_gp.optuna.sim_api import run_simulation   # YOU will define this wrapper inside sim_api.py
+from stn_gp.optuna.sim_api import run_simulation
 from stn_gp.optuna.objectives import (
-    STNGPObjectiveConfig,
-    stn_gpe_beta_objective,
+    PairedObjectiveConfig,
+    compute_normal_score,
+    compute_pathological_score,
+    compute_combined_score,
 )
 
 
-# ---------------------------------------------------------------------
-# Trial → Parameter dictionary
-# ---------------------------------------------------------------------
+# ============================================================
+# PARAMETER SEARCH SPACE (θ) — BASE PARAMETERS
+# ============================================================
 
-def sample_stn_gpe_params(trial: optuna.Trial) -> Dict[str, Any]:
+def sample_theta(trial: optuna.Trial) -> dict:
     """
-    Sample all parameters you want Optuna to tune.
-
-    Only defines the *free parameters*. sim_api.run_simulation()
-    decides how to insert these into the actual model/configs.
-
-    YOU can change these as needed when the scientific design evolves.
+    Sample base parameters θ from biologically plausible ranges.
+    These are *normal-state baseline* values BEFORE δ-modulation.
     """
-    return {
-        # Example parameters to tune — change freely
-        "ISTN": trial.suggest_float("ISTN", 0.0, 60.0),
-        "gT":   trial.suggest_float("gT", 0.1, 2.0),
-        "gAHP": trial.suggest_float("gAHP", 2.0, 20.0),
+    theta = {}
 
-        # GPe adaptation strength
-        "a_gpe": trial.suggest_float("a_gpe", 0.1, 6.0),
-        "tauw_gpe": trial.suggest_float("tauw_gpe", 80.0, 400.0),
-
-        # Synaptic weights — example ranges
-        "w_stn_to_gpe": trial.suggest_float("w_stn_to_gpe", 0.1, 4.0),
-        "w_gpe_to_stn": trial.suggest_float("w_gpe_to_stn", 0.1, 4.0),
-    }
-
-
-# ---------------------------------------------------------------------
-# Optuna objective wrapper
-# ---------------------------------------------------------------------
-
-def optuna_objective(
-    trial: optuna.Trial,
-    obj_cfg: STNGPObjectiveConfig,
-    runtime_cfg: Optional[Dict[str, Any]] = None,
-) -> float:
-    """
-    Optuna objective function.  Converts trial → params,
-    runs one simulation, evaluates scalar loss.
-
-    Parameters
-    ----------
-    trial : optuna.Trial
-        Provided by optuna.
-    obj_cfg : STNGPObjectiveConfig
-        Fixed objective configuration (targets, weights, etc.)
-    runtime_cfg : dict or None
-        Non-optimized config like sim duration, population sizes, seed, etc.
-
-    Returns
-    -------
-    loss : float
-        Scalar to minimize.
-    """
-    if runtime_cfg is None:
-        runtime_cfg = {}
-
-    # ---- 1) Sample free parameters from trial ----
-    trial_params = sample_stn_gpe_params(trial)
-
-    # ---- 2) Run one STN–GPe simulation ----
-    # run_simulation() MUST return a dict containing:
-    #   {
-    #       "stn_pop_spikes": 1D array (T,),
-    #       "gpe_pop_spikes": 1D array (T,),
-    #       "stn_lfp":        1D array (T,),
-    #       "dt_ms":          float,
-    #       "n_stn":          int,
-    #       "n_gpe":          int,
-    #   }
-    sim_out = run_simulation(
-        trial_params=trial_params,
-        runtime_cfg=runtime_cfg,
+    # -------------------------
+    # Synaptic weights
+    # -------------------------
+    theta["stn_to_gpe_mean"] = trial.suggest_float(
+        "stn_to_gpe_mean",
+        10.0, 80.0,   # pA range for AMPA → tune later if needed
     )
 
-    # ---- 3) Compute scalar loss using objectives.py ----
-    loss = stn_gpe_beta_objective(
-        stn_pop_spikes=sim_out["stn_pop_spikes"],
-        gpe_pop_spikes=sim_out["gpe_pop_spikes"],
-        stn_lfp=sim_out["stn_lfp"],
-        dt_ms=sim_out["dt_ms"],
-        cfg=obj_cfg,
-        n_stn=sim_out["n_stn"],
-        n_gpe=sim_out["n_gpe"],
+    theta["gpe_to_stn_mean"] = trial.suggest_float(
+        "gpe_to_stn_mean",
+        0.03, 0.30,   # μA/cm² range (inhibitory conductance)
     )
 
-    # Optional: record metrics in trial.user_attrs
-    trial.set_user_attr("loss", loss)
+    # -------------------------
+    # Intrinsic drives
+    # -------------------------
+    theta["stn_ISTN"] = trial.suggest_float(
+        "stn_ISTN",
+        10.0, 35.0,    # µA/cm² — baseline tonic drive
+    )
 
-    return float(loss)
+    theta["gpe_I_baseline"] = trial.suggest_float(
+        "gpe_I_baseline",
+        80.0, 250.0,   # pA baseline current for AdEx GPe
+    )
+
+    # -------------------------
+    # Delays (ms)
+    # -------------------------
+    theta["delay_stn_to_gpe_ms"] = trial.suggest_float(
+        "delay_stn_to_gpe_ms",
+        2.0, 8.0,
+    )
+    theta["delay_gpe_to_stn_ms"] = trial.suggest_float(
+        "delay_gpe_to_stn_ms",
+        5.0, 12.0,
+    )
+
+    # -------------------------
+    # Noise
+    # -------------------------
+    theta["noise_sigma_stn"] = trial.suggest_float(
+        "noise_sigma_stn",
+        0.5, 3.0,
+    )
+    theta["noise_sigma_gpe"] = trial.suggest_float(
+        "noise_sigma_gpe",
+        0.5, 3.0,
+    )
+
+    # -------------------------
+    # Population sizes (optional but allowed)
+    # -------------------------
+    theta["n_stn"] = trial.suggest_int("n_stn", 40, 80)
+    theta["n_gpe"] = trial.suggest_int("n_gpe", 80, 160)
+
+    return theta
 
 
-# ---------------------------------------------------------------------
-# Study creation + running
-# ---------------------------------------------------------------------
+# ============================================================
+# OBJECTIVE FUNCTION FOR OPTUNA
+# ============================================================
 
-def run_optimization(
-    study_name: str,
-    storage: Optional[str],
-    obj_cfg: STNGPObjectiveConfig,
-    runtime_cfg: Optional[Dict[str, Any]] = None,
-    n_trials: int = 50,
-    direction: str = "minimize",
-) -> optuna.Study:
+def objective(trial: optuna.Trial) -> float:
     """
-    Create or load an Optuna study and run optimization.
-
-    Parameters
-    ----------
-    study_name : str
-        Name of the study.
-    storage : str or None
-        Optuna storage URI, e.g. "sqlite:///optuna_stn_gpe.db"
-        or None for in-memory study (not saved).
-    obj_cfg : STNGPObjectiveConfig
-        Objective configuration.
-    runtime_cfg : dict or None
-        Runtime config for sim_api (duration, dt, seed, etc.)
-    n_trials : int
-        Number of Optuna trials to run.
-    direction : {'minimize','maximize'}
-        Typically "minimize" for a loss.
-
-    Returns
-    -------
-    study : optuna.Study
+    Full paired δ objective.
     """
+    # -------------------------
+    # 1. Sample θ
+    # -------------------------
+    theta = sample_theta(trial)
+
+    # -------------------------
+    # 2. Load PD target PSD if available
+    # -------------------------
+    # By default we leave these None; you can drop in real data later.
+    cfg = PairedObjectiveConfig()
+
+    # -------------------------
+    # 3. Simulate δ = 0 (normal)
+    # -------------------------
+    sim_norm = run_simulation(
+        theta,
+        delta=0.0,
+        t_total_s=4.0,     # keep short for early optimization
+        burn_in_s=1.0,
+        dt_ms=0.025,
+    )
+    J_normal = compute_normal_score(sim_norm, cfg)
+
+    # -------------------------
+    # 4. Simulate δ = 1 (PD)
+    # -------------------------
+    sim_pd = run_simulation(
+        theta,
+        delta=1.0,
+        t_total_s=4.0,
+        burn_in_s=1.0,
+        dt_ms=0.025,
+    )
+    J_path = compute_pathological_score(sim_pd, cfg)
+
+    # -------------------------
+    # 5. Combine
+    # -------------------------
+    J = compute_combined_score(J_normal, J_path, gamma_normal=1.0, gamma_path=1.0)
+
+    # -------------------------
+    # 6. Log trial metrics
+    # -------------------------
+    trial.set_user_attr("J_normal", float(J_normal))
+    trial.set_user_attr("J_path", float(J_path))
+
+    return J
+
+
+# ============================================================
+# MAIN ENTRY POINT
+# ============================================================
+
+def main():
+    print("🔧 Starting Optuna paired δ-study for STN–GPe network...")
+
+    # Path to store the study DB
+    db_path = Path("stn_gp_optuna.db").absolute()
+    storage = f"sqlite:///{db_path}"
+
+    # Create study
     study = optuna.create_study(
-        study_name=study_name,
+        study_name="stn_gpe_paired_delta",
+        direction="maximize",
         storage=storage,
-        direction=direction,
         load_if_exists=True,
     )
 
-    study.optimize(
-        lambda trial: optuna_objective(trial, obj_cfg, runtime_cfg),
-        n_trials=n_trials,
-        show_progress_bar=True,
-    )
+    print(f"📁 Study DB = {db_path}")
 
-    return study
+    # Run optimization
+    study.optimize(objective, n_trials=50, show_progress_bar=True)
+
+    # Print results
+    print("\n=== BEST TRIAL ===")
+    best = study.best_trial
+    print(f"Value: {best.value}")
+    print("Params:", best.params)
+    print("Attributes:", best.user_attrs)
+
+    # Save best parameters to JSON
+    best_params_path = Path("best_theta.json")
+    with open(best_params_path, "w") as f:
+        json.dump(best.params, f, indent=2)
+
+    print(f"💾 Best parameters saved to {best_params_path}")
+
+
+if __name__ == "__main__":
+    main()
