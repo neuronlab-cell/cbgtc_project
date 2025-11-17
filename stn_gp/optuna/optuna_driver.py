@@ -194,7 +194,7 @@ def main():
     # Number of trials
     # For quick validation: use n_trials=5
     # For more serious search: bump to 50–200 depending on budget
-    n_trials = 50
+    n_trials = 2
 
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
