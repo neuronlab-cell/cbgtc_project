@@ -21,6 +21,7 @@ import numpy as np
 
 from stn_gp.sim.build_network import build_network
 from stn_gp.sim.integrators import step_once
+from stn_gp.models.gp_adex import AdExParams_GPe
 
 
 # ============================================================
@@ -42,53 +43,40 @@ def apply_delta_parameters(theta: Dict, delta: float) -> Dict:
         - noise_sigma_stn
         - noise_sigma_gpe
         - n_stn, n_gpe
-        (+ anything else you later add for Optuna)
 
     δ:
         0 → normal
         1 → PD (dopamine-depleted)
 
-    This function *does not* know about build_network's internal keys.
+    This function does NOT know about build_network's internal keys.
     It just returns a dict with the same high-level names, but δ-modulated.
     """
-    # Copy so we don’t mutate original
     cfg = dict(theta)
 
-    # Clamp delta to [0, 1] just in case
+    # Clamp delta to [0, 1]
     delta = max(0.0, min(1.0, float(delta)))
 
-    # ======================================================
-    # Dopamine-sensitive parameters (the δ group)
-    # ======================================================
-
-    # 1) GPe → STN inhibitory strength increases with δ
-    #    PD: stronger GPe inhibition onto STN
+    # 1) GPe → STN inhibitory strength increases with δ (PD)
     if "gpe_to_stn_mean" in cfg:
         base = float(cfg["gpe_to_stn_mean"])
-        cfg["gpe_to_stn_mean"] = base * (1.0 + 1.0 * delta)  # up to 2× at δ=1
+        cfg["gpe_to_stn_mean"] = base * (1.0 + 1.0 * delta)  # up to 2×
 
-    # 2) GPe baseline decreases with δ (weak pacemaking → irregular)
+    # 2) GPe baseline decreases with δ (weaker pacemaker in PD)
     if "gpe_I_baseline" in cfg:
         base = float(cfg["gpe_I_baseline"])
-        # At δ=1, drop to ~50% of baseline
-        cfg["gpe_I_baseline"] = max(0.0, base * (1.0 - 0.5 * delta))
+        cfg["gpe_I_baseline"] = max(0.0, base * (1.0 - 0.5 * delta))  # down to 50%
 
     # 3) STN tonic drive increases with δ (hyperactive STN in PD)
     if "stn_ISTN" in cfg:
         base = float(cfg["stn_ISTN"])
-        # At δ=1, ~1.5× baseline
-        cfg["stn_ISTN"] = base * (1.0 + 0.5 * delta)
+        cfg["stn_ISTN"] = base * (1.0 + 0.5 * delta)  # up to 1.5×
 
-    # 4) STN → GPe excitatory gain (moderate effect)
+    # 4) STN → GPe excitatory gain (moderate effect in PD)
     if "stn_to_gpe_mean" in cfg:
         base = float(cfg["stn_to_gpe_mean"])
-        # Small increase in PD
         cfg["stn_to_gpe_mean"] = base * (1.0 + 0.3 * delta)
 
-    # 5) Optional: noise modulation (keep simple for now; can adjust later)
-    #    For now, we leave noise_sigma_* as is so that Optuna controls them.
-    #    If you want, you can later make STN noise slightly lower in PD
-    #    to sharpen beta peaks.
+    # Noise left for Optuna to control directly
 
     return cfg
 
@@ -108,12 +96,10 @@ def _build_network_cfg(
     Take the δ-modulated model-level config (Optuna-facing names)
     and produce a cfg dict compatible with build_network().
 
-    This is where we map:
-
+    Mapping:
         stn_to_gpe_mean      → w_stn_to_gpe_mean_pA
         gpe_to_stn_mean      → w_gpe_to_stn_mean_uAcm2
         stn_ISTN             → stn_params["ISTN"]
-        gpe_I_baseline       → gpe_params["I_baseline"]
         noise_sigma_stn      → stn_ou_sigma
         noise_sigma_gpe      → gpe_ou_sigma
         n_stn, n_gpe         → n_stn, n_gpe
@@ -121,7 +107,7 @@ def _build_network_cfg(
     """
     cfg: Dict = {}
 
-    # ----- time + seed (build_network only uses dt_ms + seed; t_total/burn used by sim_api) -----
+    # ----- time + seed -----
     cfg["dt_ms"] = float(dt_ms)
     if seed is not None:
         cfg["seed"] = int(seed)
@@ -133,54 +119,36 @@ def _build_network_cfg(
         cfg["n_gpe"] = int(model_cfg["n_gpe"])
 
     # ----- delays -----
-    # (build_network already expects these exact keys)
     if "delay_stn_to_gpe_ms" in model_cfg:
         cfg["delay_stn_to_gpe_ms"] = float(model_cfg["delay_stn_to_gpe_ms"])
     if "delay_gpe_to_stn_ms" in model_cfg:
         cfg["delay_gpe_to_stn_ms"] = float(model_cfg["delay_gpe_to_stn_ms"])
 
     # ----- synaptic weights -----
-    # STN → GPe: pA jumps, build_network key = w_stn_to_gpe_mean_pA
     if "stn_to_gpe_mean" in model_cfg:
         cfg["w_stn_to_gpe_mean_pA"] = float(model_cfg["stn_to_gpe_mean"])
-
-    # GPe → STN: µA/cm² jumps, build_network key = w_gpe_to_stn_mean_uAcm2
     if "gpe_to_stn_mean" in model_cfg:
         cfg["w_gpe_to_stn_mean_uAcm2"] = float(model_cfg["gpe_to_stn_mean"])
 
-    # ----- OU noise -----
-    # We only override sigma; mu and tau_ms stay as defaults from default_build_config().
+    # ----- OU noise sigmas -----
     if "noise_sigma_stn" in model_cfg:
         cfg["stn_ou_sigma"] = float(model_cfg["noise_sigma_stn"])
     if "noise_sigma_gpe" in model_cfg:
         cfg["gpe_ou_sigma"] = float(model_cfg["noise_sigma_gpe"])
 
-    # ----- intrinsic parameters via stn_params / gpe_params -----
+    # ----- STN intrinsic parameters via stn_params -----
     stn_params = {}
-    gpe_params = {}
-
-    # STN tonic drive ISTN (µA/cm²)
     if "stn_ISTN" in model_cfg:
         stn_params["ISTN"] = float(model_cfg["stn_ISTN"])
-
-    # GPe AdEx baseline current (pA)
-    if "gpe_I_baseline" in model_cfg:
-        gpe_params["I_baseline"] = float(model_cfg["gpe_I_baseline"])
-
-    # If user wants to pass other overrides in future, we can merge them here.
-
     cfg["stn_params"] = stn_params
-    cfg["gpe_params"] = gpe_params
 
-    # We do NOT touch:
-    #   - p_stn_to_gpe, p_gpe_to_stn
-    #   - ampa_decay_ms, gaba_decay_ms
-    #   - E_AMPA_mV, E_GABA_mV
-    #   - OU mu, tau_ms
-    # so those remain as in default_build_config().
+    # GPe intrinsic params are *not* passed via gpe_params to avoid
+    # AdExParams_GPe(**gpe_params) errors. We will rescale I_baseline
+    # after the network is built, at the neuron level.
 
-    # We also carry t_total_s and burn_in_s back to caller; build_network ignores these,
-    # but it's convenient to keep everything together if we ever log this cfg.
+    cfg["gpe_params"] = {}
+
+    # Carry sim times in case we want them logged
     cfg["t_total_s"] = float(t_total_s)
     cfg["burn_in_s"] = float(burn_in_s)
 
@@ -202,40 +170,21 @@ def run_simulation(
     """
     Run a single STN–GPe simulation under (theta, delta).
 
-    Parameters
-    ----------
-    theta : dict
-        Optuna-facing base parameters (see optuna_driver.sample_theta).
-    delta : float
-        Dopamine level in [0, 1]: 0 = normal, 1 = PD-like.
-    t_total_s : float
-        Total simulation time (seconds).
-    burn_in_s : float
-        Burn-in time to discard from analysis (seconds).
-    dt_ms : float
-        Time step (ms).
-    seed : int or None
-        Optional RNG seed override.
-
-    Returns
-    -------
-    dict with:
-        "spikes_stn": (T, N_stn),
-        "spikes_gpe": (T, N_gpe),
-        "V_stn":      (T, N_stn),
-        "V_gpe":      (T, N_gpe),
-        "dt_ms":      float,
-        "burn_steps": int,
+    Returns:
+        {
+            "spikes_stn": (T, N_stn),
+            "spikes_gpe": (T, N_gpe),
+            "V_stn":      (T, N_stn),
+            "V_gpe":      (T, N_gpe),
+            "dt_ms":      float,
+            "burn_steps": int,
+        }
     """
 
-    # --------------------------------------------------------
-    # 1. Apply dopamine modulation (θ → θ(δ)) at model-level
-    # --------------------------------------------------------
+    # 1. Apply dopamine modulation at model level (θ → θ(δ))
     model_cfg = apply_delta_parameters(theta, delta)
 
-    # --------------------------------------------------------
-    # 2. Map model-level config → build_network-compatible cfg
-    # --------------------------------------------------------
+    # 2. Map model-level cfg → build_network-compatible cfg
     cfg_for_net = _build_network_cfg(
         model_cfg=model_cfg,
         t_total_s=t_total_s,
@@ -244,50 +193,29 @@ def run_simulation(
         seed=seed,
     )
 
-    # --------------------------------------------------------
-    # 3. Build network (existing code)
-    # --------------------------------------------------------
+    # 3. Build network
     net, used_cfg = build_network(cfg_for_net)
 
     dt = float(used_cfg["dt_ms"])
     T = int(round(t_total_s * 1000.0 / dt))
     burn_steps = int(round(burn_in_s * 1000.0 / dt))
 
-    # --------------------------------------------------------
+    # 3b. Rescale GPe I_baseline using model_cfg["gpe_I_baseline"], if present
+    if "gpe_I_baseline" in model_cfg:
+        target_I = float(model_cfg["gpe_I_baseline"])
+        # Use the canonical GPe preset as reference for scaling
+        default_params = AdExParams_GPe()
+        base_I = float(default_params.I_baseline) if default_params.I_baseline != 0 else 1.0
+        ratio = target_I / base_I
+
+        for cell in net.gpe:
+            cell.p.I_baseline = cell.p.I_baseline * ratio
+
     # 4. Allocate recording buffers
-    # --------------------------------------------------------
     N_stn = net.n_stn
     N_gpe = net.n_gpe
 
     V_stn = np.zeros((T, N_stn), dtype=np.float32)
     V_gpe = np.zeros((T, N_gpe), dtype=np.float32)
     spikes_stn = np.zeros((T, N_stn), dtype=np.uint8)
-    spikes_gpe = np.zeros((T, N_gpe), dtype=np.uint8)
-
-    # --------------------------------------------------------
-    # 5. Simulation loop
-    # --------------------------------------------------------
-    t_ms = 0.0
-    for t in range(T):
-        # step_once returns:
-        #   V_stn_t, spk_stn_t, V_gpe_t, spk_gpe_t
-        V_STN_t, spk_STN_t, V_GPE_t, spk_GPE_t = step_once(net, t_ms=t_ms)
-
-        V_stn[t, :] = V_STN_t
-        V_gpe[t, :] = V_GPE_t
-        spikes_stn[t, :] = spk_STN_t
-        spikes_gpe[t, :] = spk_GPE_t
-
-        t_ms += dt
-
-    # --------------------------------------------------------
-    # 6. Return in a clean standardized format
-    # --------------------------------------------------------
-    return {
-        "spikes_stn": spikes_stn,
-        "spikes_gpe": spikes_gpe,
-        "V_stn": V_stn,
-        "V_gpe": V_gpe,
-        "dt_ms": dt,
-        "burn_steps": burn_steps,
-    }
+    spikes_gpe = np.zeros((T, N_g
