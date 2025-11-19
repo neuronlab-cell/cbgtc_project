@@ -154,7 +154,7 @@ def AdExParams_GPe() -> AdExParams:
         EL=-65.0, VT=-50.0, dT=3.5,
         a=3.0, tau_w=250.0, b=30.0,
         V_reset=-60.0, V_peak=20.0, t_ref_ms=2.0,
-        I_baseline=125.0,  # initial guess; we will tune to ~45–55 Hz
+        I_baseline=200.0,  # initial guess; we will tune to ~45–55 Hz
         V_init=-65.0,
         exp_arg_min=-20.0, exp_arg_max=+10.0,
     )
