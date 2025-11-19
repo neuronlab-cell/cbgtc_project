@@ -77,14 +77,14 @@ def main():
         seed=42,
         dt_ms=0.025,
         # populations
-        n_stn=50,
-        n_gpe=100,
-        n_gpi=80,
+        n_stn=40,
+        n_gpe=120,
+        n_gpi=100,
         # connectivity
-        p_stn_to_gpe=0.25,
-        p_gpe_to_stn=0.35,
+        p_stn_to_gpe=0.15,
+        p_gpe_to_stn=0.07,
         p_stn_to_gpi=0.30,
-        p_gpe_to_gpi=0.50,
+        p_gpe_to_gpi=0.05,
         # delays (ms)
         delay_stn_to_gpe_ms=5.0,
         delay_gpe_to_stn_ms=8.0,
