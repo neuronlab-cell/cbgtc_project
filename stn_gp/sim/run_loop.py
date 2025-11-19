@@ -1,5 +1,5 @@
 # run_loop.py
-# Main entry point: build STN–GPe network, run simulation, save outputs (arrays + quick figures).
+# Main entry point: build STN–GPe–GPi network, run simulation, save outputs (arrays + quick figures).
 
 from __future__ import annotations
 import os, sys, json, time, argparse, datetime
@@ -22,6 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.signal import welch
 
+
 def load_yaml_or_default(path: str | Path, default: dict) -> dict:
     p = Path(path).expanduser()
     if HAVE_YAML and p.exists():
@@ -33,8 +34,10 @@ def load_yaml_or_default(path: str | Path, default: dict) -> dict:
         return out
     return default
 
+
 def ensure_dir(d: Path) -> None:
     d.mkdir(parents=True, exist_ok=True)
+
 
 def figure_raster(ax, spike_mat: np.ndarray, dt_ms: float, title: str, color="k"):
     """
@@ -52,12 +55,14 @@ def figure_raster(ax, spike_mat: np.ndarray, dt_ms: float, title: str, color="k"
     ax.set_xlim(0, t_ms[-1] / 1000.0)
     ax.set_ylim(0.5, N + 0.5)
 
+
 def compute_psd(signal: np.ndarray, fs_hz: float):
     f, Pxx = welch(signal, fs=fs_hz, nperseg=min(4096, len(signal)))
     return f, Pxx
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Run STN–GPe loop simulation")
+    parser = argparse.ArgumentParser(description="Run STN–GPe–GPi loop simulation")
     parser.add_argument("--config", type=str, default="../configs/params_stn_gpe.yaml",
                         help="YAML config for simulation/network (optional)")
     parser.add_argument("--paths", type=str, default="../configs/paths.yaml",
@@ -74,12 +79,17 @@ def main():
         # populations
         n_stn=50,
         n_gpe=100,
+        n_gpi=80,
         # connectivity
         p_stn_to_gpe=0.25,
         p_gpe_to_stn=0.35,
+        p_stn_to_gpi=0.30,
+        p_gpe_to_gpi=0.50,
         # delays (ms)
         delay_stn_to_gpe_ms=5.0,
         delay_gpe_to_stn_ms=8.0,
+        delay_stn_to_gpi_ms=5.0,
+        delay_gpe_to_gpi_ms=5.0,
         # synapse kinetics
         ampa_decay_ms=3.0,
         gaba_decay_ms=8.0,
@@ -91,15 +101,21 @@ def main():
         w_stn_to_gpe_cv=0.20,
         w_gpe_to_stn_mean_uAcm2=0.09,
         w_gpe_to_stn_cv=0.20,
+        w_stn_to_gpi_mean_pA=18.0,
+        w_stn_to_gpi_cv=0.20,
+        w_gpe_to_gpi_mean_pA=25.0,
+        w_gpe_to_gpi_cv=0.20,
         # background OU (unused here—builder owns it)
         stn_params={},
         gpe_params={},
+        gpi_params={},
         # sim window
         t_total_s=8.0,
         burn_in_s=1.0,
         # recording
         record_subset_stn=10,
         record_subset_gpe=10,
+        record_subset_gpi=10,
     )
 
     cfg = load_yaml_or_default(args.config, default_cfg)
@@ -139,6 +155,12 @@ def main():
         "fs_hz": fs_hz,
         "T_steps": T_steps,
         "burn_steps": burn_steps,
+        "n_stn": net.n_stn,
+        "n_gpe": net.n_gpe,
+        "n_gpi": net.n_gpi,
+        "record_subset_stn": cfg.get("record_subset_stn", 10),
+        "record_subset_gpe": cfg.get("record_subset_gpe", 10),
+        "record_subset_gpi": cfg.get("record_subset_gpi", 10),
         "config": cfg,
         "start_time": datetime.datetime.now().isoformat(),
     }
@@ -148,27 +170,37 @@ def main():
     # ------- recording buffers -------
     rec_stn = cfg.get("record_subset_stn", 10)
     rec_gpe = cfg.get("record_subset_gpe", 10)
+    rec_gpi = cfg.get("record_subset_gpi", 10)
+
     idx_stn = np.arange(min(rec_stn, net.n_stn))
     idx_gpe = np.arange(min(rec_gpe, net.n_gpe))
+    idx_gpi = np.arange(min(rec_gpi, net.n_gpi))
 
     V_stn_rec = np.zeros((T_steps, idx_stn.size), dtype=np.float32)
     V_gpe_rec = np.zeros((T_steps, idx_gpe.size), dtype=np.float32)
+    V_gpi_rec = np.zeros((T_steps, idx_gpi.size), dtype=np.float32)
+
     spk_stn_mat = np.zeros((T_steps, net.n_stn), dtype=np.uint8)
     spk_gpe_mat = np.zeros((T_steps, net.n_gpe), dtype=np.uint8)
+    spk_gpi_mat = np.zeros((T_steps, net.n_gpi), dtype=np.uint8)
 
     # ------- simulation loop -------
     t_ms = 0.0
     t0 = time.time()
     for t in range(T_steps):
-        # step_once should return (V_stn, spk_stn, V_gpe, spk_gpe)
-        V_stn, spk_stn, V_gpe, spk_gpe = step_once(net, t_ms=t_ms)
+        # step_once now returns STN, GPe, GPi
+        V_stn, spk_stn, V_gpe, spk_gpe, V_gpi, spk_gpi = step_once(net, t_ms=t_ms)
 
         if idx_stn.size:
             V_stn_rec[t, :] = V_stn[idx_stn]
         if idx_gpe.size:
             V_gpe_rec[t, :] = V_gpe[idx_gpe]
+        if idx_gpi.size:
+            V_gpi_rec[t, :] = V_gpi[idx_gpi]
+
         spk_stn_mat[t, :] = spk_stn
         spk_gpe_mat[t, :] = spk_gpe
+        spk_gpi_mat[t, :] = spk_gpi
 
         t_ms += dt_ms
 
@@ -180,14 +212,38 @@ def main():
     # ------- save arrays -------
     np.save(out_base / "arrays" / "V_stn.npy", V_stn_rec)
     np.save(out_base / "arrays" / "V_gpe.npy", V_gpe_rec)
+    np.save(out_base / "arrays" / "V_gpi.npy", V_gpi_rec)
+
     np.save(out_base / "arrays" / "spikes_stn.npy", spk_stn_mat)
     np.save(out_base / "arrays" / "spikes_gpe.npy", spk_gpe_mat)
+    np.save(out_base / "arrays" / "spikes_gpi.npy", spk_gpi_mat)
 
     # ------- quick figs: raster + PSD -------
     # Raster (skip burn-in)
-    fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-    figure_raster(axes[0], spk_stn_mat[burn_steps:], dt_ms, title="STN spikes (raster)", color="tab:blue")
-    figure_raster(axes[1], spk_gpe_mat[burn_steps:], dt_ms, title="GPe spikes (raster)", color="tab:orange")
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+
+    figure_raster(
+        axes[0],
+        spk_stn_mat[burn_steps:],
+        dt_ms,
+        title="STN spikes (raster)",
+        color="tab:blue",
+    )
+    figure_raster(
+        axes[1],
+        spk_gpe_mat[burn_steps:],
+        dt_ms,
+        title="GPe spikes (raster)",
+        color="tab:orange",
+    )
+    figure_raster(
+        axes[2],
+        spk_gpi_mat[burn_steps:],
+        dt_ms,
+        title="GPi spikes (raster)",
+        color="tab:green",
+    )
+
     plt.tight_layout()
     fig.savefig(out_base / "figs" / "raster.png", dpi=160)
     plt.close(fig)
@@ -195,12 +251,16 @@ def main():
     # PSD of population spike count per step
     stn_rate = spk_stn_mat.sum(axis=1).astype(np.float32)
     gpe_rate = spk_gpe_mat.sum(axis=1).astype(np.float32)
+    gpi_rate = spk_gpi_mat.sum(axis=1).astype(np.float32)
+
     f1, Pstn = compute_psd(stn_rate[burn_steps:], fs_hz)
     f2, Pgpe = compute_psd(gpe_rate[burn_steps:], fs_hz)
+    f3, Pgpi = compute_psd(gpi_rate[burn_steps:], fs_hz)
 
     fig2, ax2 = plt.subplots(1, 1, figsize=(8, 4))
     ax2.semilogy(f1, Pstn + 1e-12, label="STN")
     ax2.semilogy(f2, Pgpe + 1e-12, label="GPe")
+    ax2.semilogy(f3, Pgpi + 1e-12, label="GPi")
     ax2.set_xlim(0, 100)
     ax2.set_xlabel("Frequency (Hz)")
     ax2.set_ylabel("Power")
@@ -212,7 +272,8 @@ def main():
     print(f"✅ Run complete: {run_id}")
     print(f"   Saved to: {out_base}")
     print("   Figures: raster.png, psd.png")
-    print("   Arrays:  V_stn.npy, V_gpe.npy, spikes_stn.npy, spikes_gpe.npy")
+    print("   Arrays:  V_stn.npy, V_gpe.npy, V_gpi.npy, spikes_stn.npy, spikes_gpe.npy, spikes_gpi.npy")
+
 
 if __name__ == "__main__":
     main()
