@@ -1,18 +1,30 @@
 # optuna_driver.py
-# Main orchestration script for paired δ optimization using Optuna.
+# Normal-regime Optuna tuning for STN–GPe–GPi network
 #
-# Responsibilities:
-#   • Define parameter search space (θ)
-#   • Run two simulations per trial: δ=0 (normal), δ=1 (PD-like)
-#   • Score both using objectives.py (normal + PD + δ-contrast)
-#   • Save best parameters + store study in a SQLite DB
+# Philosophy:
+#   • Optimize ONLY the normal physiological regime (δ = 0)
+#   • Target: firing rates, CV, beta power fraction (13–30 Hz)
+#   • Parameters searched:
+#       - tonic drives (ISTN_mean, I_baseline_GPe, I_baseline_GPi)
+#       - intrinsic scalers (stn_intrinsic_scale, gpe_adapt_scale)
+#       - OU noise levels
+#       - population sizes
+#   • DO NOT modify synapse weights or connection probabilities
+#   • DO NOT use pathological (δ = 1) scoring here
 #
-# Usage (from repo root, with venv active):
+# Objective:
+#   J = − [  w_rate * rate_error
+#          + w_cv   * cv_error
+#          + w_beta * beta_error ]
+#
+#   The lower the combined error, the higher the score we return to Optuna.
+#
+# Usage:
 #   cd ~/cbgtc_project
 #   source .venv/bin/activate
 #   python -m stn_gp.optuna.optuna_driver
 #
-# To do a quick smoke test, edit n_trials in main() to something small (e.g., 5).
+# The best parameters are saved in best_theta.json
 
 from __future__ import annotations
 
@@ -20,154 +32,194 @@ import json
 from pathlib import Path
 from typing import Dict
 
+import numpy as np
 import optuna
 
 from stn_gp.optuna.sim_api import run_simulation
-from stn_gp.optuna.objectives import (
-    PairedObjectiveConfig,
-    compute_combined_score,
-    _analyze_condition,  # internal but useful to get metrics
-)
 
 
 # ============================================================
-# PARAMETER SEARCH SPACE (θ)
+# Target biological ranges (NORMAL)
+# ============================================================
+
+TARGETS = {
+    "stn_rate": (15.0, 25.0),   # Hz
+    "gpe_rate": (60.0, 80.0),   # Hz
+    "gpi_rate": (60.0, 90.0),   # Hz
+
+    "cv": (0.6, 1.0),           # realistic irregularity
+
+    # Beta power fraction: beta(13–30Hz)/broad(1–80Hz)
+    "beta_frac": (0.03, 0.10),
+}
+
+# ============================================================
+# Utility functions
+# ============================================================
+
+def _compute_firing_rates(spikes: np.ndarray, dt_ms: float, burn_steps: int):
+    sp = spikes[burn_steps:]
+    T = sp.shape[0]
+    dur = T * dt_ms / 1000.0
+    return sp.sum(axis=0) / dur
+
+
+def _compute_cv(spikes: np.ndarray, dt_ms: float, burn_steps: int):
+    sp = spikes[burn_steps:]
+    N = sp.shape[1]
+    cvs = np.zeros(N)
+    for i in range(N):
+        t_idx = np.where(sp[:, i] > 0)[0]
+        if len(t_idx) < 5:
+            cvs[i] = np.nan
+            continue
+        isi = np.diff(t_idx) * dt_ms
+        cvs[i] = np.std(isi) / (np.mean(isi) + 1e-9)
+    return cvs
+
+
+def _compute_beta_fraction(rate_t: np.ndarray, dt_ms: float):
+    # FFT beta fraction = power(13–30Hz) / power(1–80Hz)
+    x = rate_t - np.mean(rate_t)
+    n = len(x)
+    fs = 1000.0 / dt_ms
+    freqs = np.fft.rfftfreq(n, 1.0 / fs)
+    X = np.fft.rfft(x)
+    psd = np.abs(X) ** 2
+
+    def band(f1, f2):
+        m = (freqs >= f1) & (freqs <= f2)
+        if np.any(m):
+            return psd[m].sum()
+        return 0.0
+
+    beta = band(13, 30)
+    broad = band(1, 80)
+    return beta / (broad + 1e-12)
+
+
+def _bounded_error(value, lo, hi):
+    if lo <= value <= hi:
+        return 0.0
+    # distance outside the band (normalized)
+    if value < lo:
+        return (lo - value) / lo
+    else:
+        return (value - hi) / hi
+
+
+# ============================================================
+# PARAMETER SEARCH SPACE
 # ============================================================
 
 def sample_theta(trial: optuna.Trial) -> Dict:
-    """
-    Sample base parameters θ from biologically plausible ranges.
-    These are baseline (δ = 0) values before dopamine modulation.
-    """
+    theta = {}
 
-    theta: Dict = {}
+    # ------------------------------------------------------------------
+    # DRIVES — PRIMARY CONTROL FOR RATES
+    # ------------------------------------------------------------------
+    theta["ISTN_mean"] = trial.suggest_float("ISTN_mean", 15.0, 35.0)
+    theta["I_baseline_GPe"] = trial.suggest_float("I_baseline_GPe", 100.0, 220.0)
+    theta["I_baseline_GPi"] = trial.suggest_float("I_baseline_GPi", 120.0, 260.0)
 
-    # -------------------------
-    # Synaptic weights
-    # -------------------------
-    theta["stn_to_gpe_mean"] = trial.suggest_float(
-        "stn_to_gpe_mean",
-        20.0, 70.0,  # pA; moderate–strong AMPA
-    )
+    # ------------------------------------------------------------------
+    # INTRINSIC SCALERS — CONTROL CV/IRREGULARITY
+    # ------------------------------------------------------------------
+    theta["stn_intrinsic_scale"] = trial.suggest_float("stn_intrinsic_scale", 0.6, 1.4)
+    theta["gpe_adapt_scale"] = trial.suggest_float("gpe_adapt_scale", 0.6, 1.6)
+    theta["gpi_adapt_scale"] = trial.suggest_float("gpi_adapt_scale", 0.6, 1.6)
 
-    theta["gpe_to_stn_mean"] = trial.suggest_float(
-        "gpe_to_stn_mean",
-        0.05, 0.25,  # μA/cm²; realistic inhibitory range
-    )
+    # ------------------------------------------------------------------
+    # NOISE — CONTROLS RATE VARIABILITY & CV
+    # ------------------------------------------------------------------
+    theta["noise_sigma_stn"] = trial.suggest_float("noise_sigma_stn", 0.1, 2.0)
+    theta["noise_sigma_gpe"] = trial.suggest_float("noise_sigma_gpe", 0.1, 2.0)
+    theta["noise_sigma_gpi"] = trial.suggest_float("noise_sigma_gpi", 0.1, 2.0)
 
-    # -------------------------
-    # Intrinsic drives
-    # -------------------------
-    theta["stn_ISTN"] = trial.suggest_float(
-        "stn_ISTN",
-        15.0, 30.0,  # µA/cm²; modest–high tonic drive
-    )
-
-    theta["gpe_I_baseline"] = trial.suggest_float(
-        "gpe_I_baseline",
-        120.0, 230.0,  # pA baseline AdEx current
-    )
-
-    # -------------------------
-    # Delays (ms)
-    # -------------------------
-    theta["delay_stn_to_gpe_ms"] = trial.suggest_float(
-        "delay_stn_to_gpe_ms",
-        2.0, 5.0,  # literature ~2–4 ms
-    )
-    theta["delay_gpe_to_stn_ms"] = trial.suggest_float(
-        "delay_gpe_to_stn_ms",
-        5.0, 10.0,  # literature ~5–8 ms
-    )
-
-    # -------------------------
-    # Noise (OU sigma, arbitrary units)
-    # -------------------------
-    theta["noise_sigma_stn"] = trial.suggest_float(
-        "noise_sigma_stn",
-        0.5, 2.0,
-    )
-    theta["noise_sigma_gpe"] = trial.suggest_float(
-        "noise_sigma_gpe",
-        0.3, 1.5,
-    )
-
-    # -------------------------
-    # Population sizes
-    # -------------------------
-    theta["n_stn"] = trial.suggest_int("n_stn", 50, 80)
-    theta["n_gpe"] = trial.suggest_int("n_gpe", 100, 180)
+    # ------------------------------------------------------------------
+    # POPULATION SIZES — affects PSD stability
+    # ------------------------------------------------------------------
+    theta["n_stn"] = trial.suggest_int("n_stn", 40, 80)
+    theta["n_gpe"] = trial.suggest_int("n_gpe", 80, 180)
+    theta["n_gpi"] = trial.suggest_int("n_gpi", 60, 140)
 
     return theta
 
 
 # ============================================================
-# OBJECTIVE FUNCTION FOR OPTUNA
+# OBJECTIVE FUNCTION
 # ============================================================
 
 def objective(trial: optuna.Trial) -> float:
-    """
-    Full paired-δ objective:
-      • Simulate δ = 0 (normal)
-      • Simulate δ = 1 (PD-like)
-      • Score both (normal / PD) with objectives.py
-      • Add δ-contrast term (beta & sharpness differences)
-      • Return combined score for maximization
-    """
 
-    # 1) Sample base parameters
     theta = sample_theta(trial)
 
-    # 2) Objective configuration (can later be made trial-dependent)
-    cfg = PairedObjectiveConfig()
-
-    # 3) Run simulations for δ = 0 (normal) and δ = 1 (PD)
-    sim_norm = run_simulation(
+    # ---------- run simulation ----------
+    sim = run_simulation(
         theta,
-        delta=0.0,
-        t_total_s=4.0,
-        burn_in_s=1.0,
-        dt_ms=0.025,
-    )
-    sim_pd = run_simulation(
-        theta,
-        delta=1.0,
+        delta=0.0,          # NORMAL ONLY
         t_total_s=4.0,
         burn_in_s=1.0,
         dt_ms=0.025,
     )
 
-    # 4) Analyze each condition to get scores + metrics
-    normal_score, normal_metrics = _analyze_condition(sim_norm, cfg, mode="normal")
-    path_score, path_metrics = _analyze_condition(sim_pd, cfg, mode="pd")
+    dt = sim["dt_ms"]
+    burn = sim["burn_steps"]
 
-    # 5) Combine with explicit δ-contrast (in compute_combined_score)
-    J = compute_combined_score(
-        normal_score,
-        path_score,
-        gamma_normal=1.0,
-        gamma_path=1.0,
-        cfg=cfg,
-        normal_metrics=normal_metrics,
-        path_metrics=path_metrics,
-    )
+    # ---------- FIRING RATES ----------
+    stn_rates = _compute_firing_rates(sim["spikes_stn"], dt, burn)
+    gpe_rates = _compute_firing_rates(sim["spikes_gpe"], dt, burn)
+    gpi_rates = _compute_firing_rates(sim["spikes_gpi"], dt, burn)
 
-    # 6) Log useful attributes for later inspection
-    trial.set_user_attr("normal_score", float(normal_score))
-    trial.set_user_attr("path_score", float(path_score))
+    stn_rate = float(np.nanmean(stn_rates))
+    gpe_rate = float(np.nanmean(gpe_rates))
+    gpi_rate = float(np.nanmean(gpi_rates))
 
-    # store a few key metrics too
-    trial.set_user_attr("normal_stn_rate", normal_metrics["stn_rate"])
-    trial.set_user_attr("normal_gpe_rate", normal_metrics["gpe_rate"])
-    trial.set_user_attr("normal_beta_ratio", normal_metrics["beta_ratio"])
-    trial.set_user_attr("normal_beta_sharp", normal_metrics["beta_sharp"])
+    # ---------- CV ----------
+    stn_cv = np.nanmean(_compute_cv(sim["spikes_stn"], dt, burn))
+    gpe_cv = np.nanmean(_compute_cv(sim["spikes_gpe"], dt, burn))
+    gpi_cv = np.nanmean(_compute_cv(sim["spikes_gpi"], dt, burn))
 
-    trial.set_user_attr("pd_stn_rate", path_metrics["stn_rate"])
-    trial.set_user_attr("pd_gpe_rate", path_metrics["gpe_rate"])
-    trial.set_user_attr("pd_beta_ratio", path_metrics["beta_ratio"])
-    trial.set_user_attr("pd_beta_sharp", path_metrics["beta_sharp"])
+    mean_cv = float(np.nanmean([stn_cv, gpe_cv, gpi_cv]))
 
-    return float(J)
+    # ---------- BETA FRACTION ----------
+    rate_stn_t = sim["spikes_stn"][burn:].sum(axis=1)
+    beta_frac = _compute_beta_fraction(rate_stn_t, dt)
+
+    # ====================================================
+    # BUILD ERROR TERMS
+    # ====================================================
+    # Rate error
+    e_rate = (
+        _bounded_error(stn_rate, *TARGETS["stn_rate"]) +
+        _bounded_error(gpe_rate, *TARGETS["gpe_rate"]) +
+        _bounded_error(gpi_rate, *TARGETS["gpi_rate"])
+    ) / 3.0
+
+    # CV error
+    e_cv = _bounded_error(mean_cv, *TARGETS["cv"])
+
+    # Beta error
+    e_beta = _bounded_error(beta_frac, *TARGETS["beta_frac"])
+
+    # Weighted combined error
+    w_rate = 3.0
+    w_cv   = 2.0
+    w_beta = 1.0
+
+    total_error = (w_rate * e_rate + w_cv * e_cv + w_beta * e_beta)
+
+    # Optuna maximizes → return negative error
+    score = -total_error
+
+    # Store for inspection
+    trial.set_user_attr("stn_rate", stn_rate)
+    trial.set_user_attr("gpe_rate", gpe_rate)
+    trial.set_user_attr("gpi_rate", gpi_rate)
+    trial.set_user_attr("mean_cv", mean_cv)
+    trial.set_user_attr("beta_frac", beta_frac)
+
+    return score
 
 
 # ============================================================
@@ -175,42 +227,35 @@ def objective(trial: optuna.Trial) -> float:
 # ============================================================
 
 def main():
-    print("🔧 Starting Optuna paired-δ study for STN–GPe network...")
+    print("🔧 Starting NORMAL-REGIME Optuna optimization...")
 
-    # SQLite DB for persistent study storage
-    db_path = Path("stn_gp_optuna.db").absolute()
+    db_path = Path("normal_stn_gpe_gpi_optuna.db").absolute()
     storage = f"sqlite:///{db_path}"
 
-    # Create or load study
     study = optuna.create_study(
-        study_name="stn_gpe_paired_delta",
-        direction="maximize",  # higher score is better
+        study_name="normal_stn_gpe_gpi",
+        direction="maximize",
         storage=storage,
         load_if_exists=True,
     )
 
     print(f"📁 Study DB = {db_path}")
 
-    # Number of trials
-    # For quick validation: use n_trials=5
-    # For more serious search: bump to 50–200 depending on budget
-    n_trials = 2
+    # Set desired trial count
+    n_trials = 50
 
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
-    # Print best trial summary
     print("\n=== BEST TRIAL ===")
     best = study.best_trial
-    print(f"Value: {best.value}")
+    print("Score:", best.value)
     print("Params:", best.params)
-    print("Attributes:", best.user_attrs)
+    print("Metrics:", best.user_attrs)
 
-    # Save best parameters to JSON for later reuse
-    best_params_path = Path("best_theta.json")
-    with open(best_params_path, "w") as f:
+    with open("best_theta.json", "w") as f:
         json.dump(best.params, f, indent=2)
 
-    print(f"💾 Best parameters saved to {best_params_path}")
+    print("💾 Saved best parameters to best_theta.json")
 
 
 if __name__ == "__main__":
