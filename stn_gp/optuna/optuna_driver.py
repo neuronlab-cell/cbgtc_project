@@ -242,7 +242,7 @@ def main():
     print(f"📁 Study DB = {db_path}")
 
     # Set desired trial count
-    n_trials = 50
+    n_trials = 2
 
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
