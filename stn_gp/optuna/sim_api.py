@@ -9,9 +9,9 @@
 #   • Apply post-build scaling for:
 #       - STN mean ISTN
 #       - GPe / GPi mean I_baseline
-#       - Intrinsic scalers (e.g., STN H/AHP, GPe adaptation)
+#       - Intrinsic scalers (e.g., STN H/AHP, GPe & GPi adaptation)
 #   • Run simulation using step_once()
-#   • Return arrays ready for scoring in objectives.py
+#   • Return arrays ready for scoring in optuna_driver.py
 #
 # Expected theta keys (you can subset/extend in optuna_driver):
 #
@@ -23,12 +23,12 @@
 #   Intrinsic scalers (optional):
 #     - "stn_intrinsic_scale" : scales gH and gAHP in STN cells
 #     - "gpe_adapt_scale"     : scales a and b in GPe AdEx
-#     - "gpi_adapt_scale"     : (reserved, currently unused unless set)
+#     - "gpi_adapt_scale"     : scales a and b in GPi AdEx
 #
 #   Noise (OU sigmas, optional):
 #     - "noise_sigma_stn"   : overrides stn_ou_sigma
 #     - "noise_sigma_gpe"   : overrides gpe_ou_sigma
-#     - "noise_sigma_gpi"   : overrides gpi_ou_sigma (if used in build_network)
+#     - "noise_sigma_gpi"   : overrides gpi_ou_sigma
 #
 #   Population sizes (optional, otherwise defaults in build_network):
 #     - "n_stn", "n_gpe", "n_gpi"
@@ -63,7 +63,7 @@ def apply_delta_parameters(theta: Dict, delta: float) -> Dict:
     introduce PD (δ=1), you can add those transforms here.
     """
     cfg = dict(theta)
-    _ = max(0.0, min(1.0, float(delta)))  # clamp, but unused
+    _ = max(0.0, min(1.0, float(delta)))  # clamp, but unused for now
     return cfg
 
 
@@ -163,7 +163,7 @@ def _apply_intrinsic_scalers(model_cfg: Dict, net) -> None:
     Expected keys in model_cfg:
       - "stn_intrinsic_scale": scale gH and gAHP in STN cells
       - "gpe_adapt_scale": scale a and b in GPe cells
-      - "gpi_adapt_scale": (optional) scale a and b in GPi cells
+      - "gpi_adapt_scale": scale a and b in GPi cells
     """
     # STN: scale H-current and AHP conductances
     stn_scale = float(model_cfg.get("stn_intrinsic_scale", 1.0))
@@ -183,7 +183,7 @@ def _apply_intrinsic_scalers(model_cfg: Dict, net) -> None:
             if hasattr(cell.p, "b"):
                 cell.p.b *= gpe_scale
 
-    # GPi: optional adaptation scaling (if you decide to use it)
+    # GPi: adaptation scaling (similar idea)
     gpi_scale = float(model_cfg.get("gpi_adapt_scale", 1.0))
     if gpi_scale != 1.0 and hasattr(net, "gpi"):
         for cell in net.gpi:
@@ -201,7 +201,6 @@ def _apply_drive_targets(model_cfg: Dict, net) -> None:
     # STN ISTN
     if "ISTN_mean" in model_cfg and hasattr(net, "stn"):
         target = float(model_cfg["ISTN_mean"])
-        # Each STN cell has cell.p.ISTN; we rescale to match the desired mean.
         _rescale_mean_attribute(net.stn, "ISTN", target)
 
     # GPe I_baseline
