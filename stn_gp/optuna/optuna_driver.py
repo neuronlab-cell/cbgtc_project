@@ -218,7 +218,7 @@ def main():
     print(f"📁 Study DB = {db_path}")
 
     # change to 50+ later
-    n_trials = 2
+    n_trials = 50
 
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
