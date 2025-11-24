@@ -77,9 +77,9 @@ def main():
         seed=42,
         dt_ms=0.025,
         # populations
-        n_stn=40,
-        n_gpe=120,
-        n_gpi=100,
+        n_stn=80,
+        n_gpe=100,
+        n_gpi=75,
         # connectivity
         p_stn_to_gpe=0.15,
         p_gpe_to_stn=0.07,
