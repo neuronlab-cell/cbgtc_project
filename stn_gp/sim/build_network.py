@@ -72,9 +72,9 @@ def default_build_config() -> Dict:
         dt_ms=0.025,
 
         # population sizes
-        n_stn=40,
-        n_gpe=120,
-        n_gpi=100,
+        n_stn=80,
+        n_gpe=100,
+        n_gpi=75,
 
         # connectivity probabilities
         p_stn_to_gpe=0.15,
