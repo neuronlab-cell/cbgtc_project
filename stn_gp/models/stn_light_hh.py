@@ -39,7 +39,7 @@ class STNLightHHParams:
 
     # Initialization / Tonic Drive
     V_init: float = -58.0
-    ISTN: float = 35.0
+    ISTN: float = 30.6
 
     # --- C-CODE KINETICS PARAMETERS (Last Working Adjustment) ---
     Vp_half: float = -52.0
