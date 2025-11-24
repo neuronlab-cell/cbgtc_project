@@ -134,7 +134,7 @@ def AdExParams_GPi() -> AdExParams:
         EL=-60.0, VT=-52.0, dT=2.5,
         a=0.5, tau_w=120.0, b=0.0,
         V_reset=-55.0, V_peak=20.0, t_ref_ms=2.0,
-        I_baseline=200.0,  # ~70 Hz with burn-in in your diagnostics
+        I_baseline=201.5,  # ~70 Hz with burn-in in your diagnostics
         V_init=-60.0,
         exp_arg_min=-20.0, exp_arg_max=+10.0,
     )
@@ -154,7 +154,7 @@ def AdExParams_GPe() -> AdExParams:
         EL=-60.0, VT=-50.0, dT=3.5,
         a=2.5, tau_w=250.0, b=27.0,
         V_reset=-60.0, V_peak=20.0, t_ref_ms=2.0,
-        I_baseline=175.0,  # initial guess; we will tune to ~45–55 Hz
+        I_baseline=200.5,  # initial guess; we will tune to ~45–55 Hz
         V_init=-65.0,
         exp_arg_min=-20.0, exp_arg_max=+10.0,
     )
