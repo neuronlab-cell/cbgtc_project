@@ -11,7 +11,7 @@ Key features:
 - JIT-compilable for high performance
 - Two parameter presets: GPe (irregular) and GPi (regular)
 
-Author: William Stanley Anderson Lab, Johns Hopkins
+Author: Kavin Nakkeeran, Johns Hopkins
 Date: December 2025
 """
 
