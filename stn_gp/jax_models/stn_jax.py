@@ -11,7 +11,7 @@ Key features:
 - JIT-compilable for high performance
 - Validated against original Python implementation
 
-Author: William Stanley Anderson Lab, Johns Hopkins
+Author: Kavin Nakkeeran, Johns Hopkins
 Date: December 2025
 """
 
