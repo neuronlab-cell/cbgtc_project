@@ -11,7 +11,8 @@ Key features:
 - JIT-compilable for high performance
 - Two parameter presets: GPe (irregular) and GPi (regular)
 
-Author: Kavin Nakkeeran, Johns Hopkins
+Author: Kavin Nakkeeran
+Functional Neurosurgery Lab, Johns Hopkins University
 Date: December 2025
 """
 
