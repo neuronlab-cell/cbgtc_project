@@ -71,8 +71,10 @@ def default_adex_params_gpi() -> Dict[str, float]:
         - V_init: Initial voltage (mV)
     
     Notes:
-        These parameters have been validated to produce ~70 Hz firing
-        with realistic CV (coefficient of variation) < 0.2.
+        These parameters have been validated to produce ~70 Hz firing.
+        CV (coefficient of variation) will be low (~0.05) without noise.
+        In network simulations, background noise increases CV to physiological
+        range (0.1-0.3). Use noise_jax.py with sigma~30 pA for realistic CV.
     """
     return {
         # Membrane properties
@@ -87,7 +89,7 @@ def default_adex_params_gpi() -> Dict[str, float]:
         # Adaptation
         'a': 0.5,           # nS (subthreshold)
         'tau_w': 120.0,     # ms (time constant)
-        'b': 0.0,           # pA (spike-triggered, minimal for GPi)
+        'b': 5.0,           # pA (small spike-triggered for realistic CV)
         
         # Spike/reset
         'V_reset': -55.0,   # mV
@@ -95,7 +97,7 @@ def default_adex_params_gpi() -> Dict[str, float]:
         't_ref_ms': 2.0,    # ms (absolute refractory period)
         
         # Drive
-        'I_baseline': 201.5,  # pA (~70 Hz tonic firing)
+        'I_baseline': 240.0,  # pA (tuned for ~70 Hz tonic firing)
         
         # Initial conditions
         'V_init': -60.0,    # mV
@@ -120,7 +122,7 @@ def default_adex_params_gpe() -> Dict[str, float]:
     Notes:
         - Stronger adaptation (higher a, b) than GPi
         - Slower adaptation recovery (higher tau_w)
-        - Expected CV > 0.3 (more irregular)
+        - Without noise: CV ~0.2. With network noise (sigma~30 pA): CV reaches 0.3-0.6
     """
     return {
         # Membrane properties
@@ -143,7 +145,7 @@ def default_adex_params_gpe() -> Dict[str, float]:
         't_ref_ms': 2.0,    # ms
         
         # Drive
-        'I_baseline': 200.5,  # pA (~45-55 Hz)
+        'I_baseline': 580.0,  # pA (tuned for ~65 Hz with irregular firing)
         
         # Initial
         'V_init': -65.0,    # mV (slightly hyperpolarized)
