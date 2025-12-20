@@ -167,3 +167,22 @@ neuron_fast = jax.jit(neuron_step)
 - [ ] Delay buffers (optimized)
 - [ ] Full network integration
 - [ ] GPU benchmarks
+
+## Citation
+
+If you use this code, please cite:
+
+```
+Kavin Nakkeeran
+Functional Neurosurgery Lab
+Johns Hopkins University
+December 2025
+```
+
+## License
+
+[Your license here]
+
+## Contact
+
+[Your contact info]
