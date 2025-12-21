@@ -1,0 +1,22 @@
+# JAX-Optuna Basal Ganglia Network Optimization
+# Python >= 3.9
+
+# Core dependencies
+jax>=0.4.20
+jaxlib>=0.4.20
+numpy>=1.24.0
+
+# Optimization
+optuna>=3.5.0
+
+# Analysis and visualization (optional)
+matplotlib>=3.7.0
+scipy>=1.10.0
+pandas>=2.0.0
+
+# For GPU support (optional, uncomment if using GPU):
+# jax[cuda12_pip]>=0.4.20
+
+# Development (optional)
+pytest>=7.4.0
+jupyter>=1.0.0
