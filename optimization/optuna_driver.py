@@ -9,14 +9,20 @@ Functional Neurosurgery Lab, Johns Hopkins University
 Date: December 2025
 """
 
+import sys
+import os
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import optuna
 import time
 from typing import Dict
 import jax.numpy as jnp
 
-from network_builder import build_network_state
-from sim_jax import create_simulation_fn
-from metrics_jax import compute_all_metrics
+from jax_models.network_builder import build_network_state
+from optimization.sim_jax import create_simulation_fn
+from optimization.metrics_jax import compute_all_metrics
 
 
 # ============================================================================
