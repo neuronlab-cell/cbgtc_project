@@ -1,9 +1,12 @@
+cd ~/cbgtc_project
+
+cat > jax_models/network_builder.py << 'EOF'
 """Network builder"""
 import jax.numpy as jnp
-from stn_jax_minimal import create_population_state as create_stn_population, create_vectorized_stn, default_stn_params
+from stn_jax import create_population_state as create_stn_population, create_vectorized_stn, default_stn_params
 from adex_jax import create_population_state as create_adex_population, create_vectorized_adex, default_adex_params_gpe, default_adex_params_gpi
-from noise_jax_minimal import create_ou_for_population
-from synapses_jax_minimal import create_synapse_config, init_synapse_state
+from noise_jax import create_ou_for_population
+from synapses_jax import create_synapse_config, init_synapse_state
 
 def build_network_state(n_stn, n_gpe, n_gpi, dt_ms, seed=42):
     # Neurons
@@ -64,3 +67,6 @@ def build_network_state(n_stn, n_gpe, n_gpi, dt_ms, seed=42):
     }
     
     return state, config
+EOF
+
+echo "✓ network_builder.py fixed"
