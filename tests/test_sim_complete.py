@@ -1,8 +1,14 @@
-# test_sim_complete.py
-"""Complete test of sim_jax.py"""
+#!/usr/bin/env python3
+"""Complete test of sim_jax.py with proper package imports"""
 
-from network_builder import build_network_state
-from sim_jax import apply_params_to_config, run_simulation_python_loop, create_simulation_fn
+import sys
+import os
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from jax_models.network_builder import build_network_state
+from optimization.sim_jax import apply_params_to_config, run_simulation_python_loop, create_simulation_fn
 import time
 
 print("=" * 70)
