@@ -6,7 +6,7 @@
 
 ---
 
-## 🧠 Overview
+## Overview
 
 A high-performance computational model of the cortico-basal ganglia-thalamo-cortical (CBGTC) circuit for studying Parkinson's disease and deep brain stimulation. The model uses **Hodgkin-Huxley neurons** and achieves **1000x speedup** over traditional Python implementations through JAX GPU acceleration.
 
@@ -23,7 +23,7 @@ A high-performance computational model of the cortico-basal ganglia-thalamo-cort
 
 ---
 
-## 🚀 Quick Start (No GPU Required!)
+## Quick Start (No GPU Required!)
 
 You don't need a local GPU - just a web browser! Use Google Cloud Platform's free tier or paid GPU instances.
 
@@ -47,7 +47,7 @@ See [Cloud Setup Guide](#cloud-setup-guide) below.
 
 ---
 
-## 📋 Requirements
+## Requirements
 
 ### Python Version
 - Python 3.9 - 3.11 (tested on 3.10)
@@ -101,7 +101,7 @@ matplotlib>=3.7.0
 
 ---
 
-## 🖥️ Cloud Setup Guide
+## Cloud Setup Guide
 
 ### Google Cloud Platform (GCP) Setup
 
@@ -207,7 +207,7 @@ gcloud compute instances stop cbgtc-gpu --zone=us-central1-a
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 cbgtc_project/
@@ -251,7 +251,7 @@ cbgtc_project/
 
 ---
 
-## 🔬 Usage Guide
+## Usage Guide
 
 ### Basic Simulation
 
@@ -352,7 +352,7 @@ python3 dbs_simulation.py
 
 ---
 
-## 📊 Key Results
+## Key Results
 
 ### Healthy vs Parkinsonian (n=10 seeds)
 
@@ -381,7 +381,7 @@ python3 dbs_simulation.py
 
 ---
 
-## 🧪 Optimized Parameters
+## Optimized Parameters
 
 ### Healthy State
 
@@ -417,7 +417,7 @@ pd_params = {
 
 ---
 
-## ⚡ Performance Benchmarks
+## Performance Benchmarks
 
 | Network Size | Neurons | Build Time | Sim Time (JIT) | Sim Time (cached) |
 |--------------|---------|------------|----------------|-------------------|
@@ -429,7 +429,7 @@ pd_params = {
 
 ---
 
-## 📚 References
+## References
 
 ### Model References
 
@@ -449,7 +449,7 @@ pd_params = {
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### JAX doesn't see GPU
 
@@ -490,32 +490,5 @@ This is usually due to numerical instability. The current code includes voltage 
 V_new = jnp.clip(V_new, -100.0, 60.0)
 ```
 
----
-
-## 📄 License
-
-MIT License - See LICENSE file
-
----
-
-## 🤝 Contact
-
-- **Author:** Kavin Nakkeeran
-- **Lab:** Functional Neurosurgery Lab, Johns Hopkins University
-- **GitHub:** [neuronlab-cell/cbgtc_project](https://github.com/neuronlab-cell/cbgtc_project)
-
----
-
-## 📝 Citation
-
-If you use this code, please cite:
-
-```bibtex
-@software{nakkeeran2025cbgtc,
-  author = {Nakkeeran, Kavin},
-  title = {CBGTC: JAX-Accelerated Basal Ganglia Network Model},
-  year = {2025},
-  publisher = {GitHub},
-  url = {https://github.com/neuronlab-cell/cbgtc_project}
 }
 ```
