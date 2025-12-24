@@ -173,6 +173,10 @@ def compute_beta_power_single_pop(V_trace: jnp.ndarray, dt_ms: float, burn_steps
     
     beta_power = jnp.sum(psd[idx])
     
+    # Handle NaN/Inf
+    if jnp.isnan(beta_power) or jnp.isinf(beta_power):
+        return 0.0
+    
     return float(beta_power)
 
 

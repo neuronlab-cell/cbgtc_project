@@ -1,7 +1,7 @@
 """Network integration"""
 import jax.numpy as jnp
-from noise_jax_minimal import ou_step
-from synapses_jax_minimal import synapse_step
+from .noise_jax import ou_step
+from .synapses_jax import synapse_step
 
 def network_step(state, config, t_ms):
     """Simplified network step for testing"""

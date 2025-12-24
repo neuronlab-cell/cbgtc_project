@@ -83,13 +83,13 @@ def default_adex_params_gpi() -> Dict[str, float]:
         'EL': -60.0,        # mV
         
         # Exponential spike initiation
-        'VT': -50.0,        # mV (threshold) - Fixed from -52.0        # mV (threshold)
-        'dT': 2.0,          # mV (sharpness) - Fixed from 2.5          # mV (sharpness)
+        'VT': -52.0,        # mV (threshold)
+        'dT': 2.5,          # mV (sharpness)
         
         # Adaptation
-        'a': 0.0,           # nS (NO subthreshold adaptation) - Fixed from 0.2  # Reduced from 0.5           # nS (subthreshold)
-        'tau_w': 20.0,       # ms (not used when a=b=0) - Fixed from 120.0     # ms (time constant)
-        'b': 0.0,           # pA (NO spike-triggered adaptation) - Fixed from 2.0  # Reduced from 5.0           # pA (small spike-triggered for realistic CV)
+        'a': 0.5,           # nS (subthreshold)
+        'tau_w': 120.0,     # ms (time constant)
+        'b': 5.0,           # pA (small spike-triggered for realistic CV)
         
         # Spike/reset
         'V_reset': -55.0,   # mV
@@ -97,7 +97,7 @@ def default_adex_params_gpi() -> Dict[str, float]:
         't_ref_ms': 2.0,    # ms (absolute refractory period)
         
         # Drive
-        'I_baseline': 250.0,  # pA (tonic pacemaker, ~70 Hz) - Fixed from 800.0  # pA (tuned for ~70 Hz tonic firing)
+        'I_baseline': 240.0,  # pA (tuned for ~70 Hz tonic firing)
         
         # Initial conditions
         'V_init': -60.0,    # mV
@@ -131,13 +131,13 @@ def default_adex_params_gpe() -> Dict[str, float]:
         'EL': -60.0,
         
         # Exponential spike (slightly easier threshold, softer slope)
-        'VT': -50.0,        # mV (threshold) ✓ Already correct        # mV (slightly depolarized)
-        'dT': 2.0,          # mV (spike sharpness) - Fixed from 3.5          # mV (softer spike initiation)
+        'VT': -50.0,        # mV (slightly depolarized)
+        'dT': 3.5,          # mV (softer spike initiation)
         
         # Adaptation (stronger and slower than GPi)
-        'a': 0.5,           # nS (subthreshold adaptation) - Fixed from 2.5           # nS (stronger subthreshold)
-        'tau_w': 20.0,       # ms (fast recovery) - Fixed from 250.0     # ms (slower recovery)
-        'b': 10.0,          # pA (spike-triggered adaptation) - Fixed from 27.0          # pA (spike-triggered increment)
+        'a': 2.5,           # nS (stronger subthreshold)
+        'tau_w': 250.0,     # ms (slower recovery)
+        'b': 27.0,          # pA (spike-triggered increment)
         
         # Spike/reset
         'V_reset': -60.0,   # mV (more hyperpolarized)
@@ -145,7 +145,7 @@ def default_adex_params_gpe() -> Dict[str, float]:
         't_ref_ms': 2.0,    # ms
         
         # Drive
-        'I_baseline': 300.0,  # pA (irregular pacemaker, ~60 Hz) - Fixed from 1200.0  # pA (tuned for ~65 Hz with irregular firing)
+        'I_baseline': 580.0,  # pA (tuned for ~65 Hz with irregular firing)
         
         # Initial
         'V_init': -65.0,    # mV (slightly hyperpolarized)

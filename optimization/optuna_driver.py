@@ -120,12 +120,12 @@ def objective(trial: optuna.Trial) -> float:
     """
     # Sample parameters
     params = {
-        'ISTN': trial.suggest_float('ISTN', 25.0, 45.0),
-        'I_gpe': trial.suggest_float('I_gpe', 400.0, 700.0),
-        'I_gpi': trial.suggest_float('I_gpi', 200.0, 350.0),
-        'noise_stn_sigma': trial.suggest_float('noise_stn_sigma', 0.05, 0.3),
-        'noise_gpe_sigma': trial.suggest_float('noise_gpe_sigma', 10.0, 50.0),
-        'noise_gpi_sigma': trial.suggest_float('noise_gpi_sigma', 10.0, 50.0)
+        'ISTN': trial.suggest_float('ISTN', 50.0, 100.0),
+        'I_gpe': trial.suggest_float('I_gpe', 200.0, 500.0),
+        'I_gpi': trial.suggest_float('I_gpi', 150.0, 400.0),
+        'noise_stn_sigma': trial.suggest_float('noise_stn_sigma', 0.3, 1.0),
+        'noise_gpe_sigma': trial.suggest_float('noise_gpe_sigma', 30.0, 80.0),
+        'noise_gpi_sigma': trial.suggest_float('noise_gpi_sigma', 30.0, 80.0)
     }
     
     # Run simulation (FAST!)

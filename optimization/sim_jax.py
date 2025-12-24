@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 from typing import Dict
-from integrator import network_step
+from jax_models.integrator import network_step
 
 def apply_params_to_config(trial_params: Dict[str, float], base_config: Dict) -> Dict:
     """
