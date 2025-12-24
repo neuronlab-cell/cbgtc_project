@@ -1,22 +1,19 @@
-# JAX-Optuna Basal Ganglia Network Optimization
-# Python >= 3.9
+# CBGTC Project Dependencies
+# Install with: pip install -r requirements.txt
 
-# Core dependencies
+# Core JAX (CPU version - for GPU see README.md)
 jax>=0.4.20
 jaxlib>=0.4.20
-numpy>=1.24.0
 
 # Optimization
-optuna>=3.5.0
+optuna>=3.0.0
 
-# Analysis and visualization (optional)
-matplotlib>=3.7.0
+# Scientific computing
+numpy>=1.24.0,<2.0.0
 scipy>=1.10.0
-pandas>=2.0.0
 
-# For GPU support (optional, uncomment if using GPU):
-# jax[cuda12_pip]>=0.4.20
+# Visualization
+matplotlib>=3.7.0
 
-# Development (optional)
-pytest>=7.4.0
-jupyter>=1.0.0
+# For GPU support, install separately:
+# pip install "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
