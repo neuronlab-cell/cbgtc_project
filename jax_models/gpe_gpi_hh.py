@@ -232,6 +232,9 @@ def gpe_gpi_step(V, h, n, r, Ca, I_syn, I_noise, dt, params):
     n_new = jnp.clip(n_new, 0.0, 1.0)
     r_new = jnp.clip(r_new, 0.0, 1.0)
     
+    # Clamp voltage
+    V_new = jnp.clip(V_new, -100.0, 60.0)
+    
     return V_new, h_new, n_new, r_new, Ca_new, spike
 
 

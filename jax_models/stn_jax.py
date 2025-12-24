@@ -323,6 +323,8 @@ def stn_step(
     I_drive = I_ext + params['ISTN']
     dVdt = (-I_ion - I_syn + I_drive) / params['Cm']
     V_new = state['V'] + dt_ms * dVdt
+    # Clamp voltage to prevent numerical instability
+    V_new = jnp.clip(V_new, -100.0, 60.0)
     
     # 6. Update intracellular calcium
     I_Ca_total = currents['I_T'] + currents['I_CaH']

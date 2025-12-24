@@ -32,9 +32,13 @@ def apply_params_to_config(trial_params: Dict[str, float], base_config: Dict) ->
     
     gpe_p = dict(config['neuron_params']['gpe'])
     gpe_p['I_baseline'] = trial_params['I_gpe']
+    gpe_p['I_app'] = trial_params['I_gpe']
+    gpe_p['I_app'] = trial_params['I_gpe']
     
     gpi_p = dict(config['neuron_params']['gpi'])
     gpi_p['I_baseline'] = trial_params['I_gpi']
+    gpi_p['I_app'] = trial_params['I_gpi']
+    gpi_p['I_app'] = trial_params['I_gpi']
     
     config['neuron_params'] = {
         'stn': stn_p,

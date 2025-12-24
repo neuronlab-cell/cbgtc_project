@@ -296,3 +296,72 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("✓ Metrics computation works!")
     print("=" * 70)
+
+
+def compute_beta_fraction_single_pop(V_trace: jnp.ndarray, dt_ms: float, burn_steps: int, 
+                                      beta_range: tuple = (13, 30), 
+                                      total_range: tuple = (1, 100)) -> float:
+    """
+    Compute beta FRACTION = power_in_beta_band / total_power.
+    
+    This is normalized (0-1) and scale-invariant.
+    
+    Args:
+        V_trace: Voltage traces (n_steps, n_neurons)
+        dt_ms: Timestep in ms
+        burn_steps: Burn-in steps to discard
+        beta_range: (13, 30) Hz - beta band
+        total_range: (1, 100) Hz - total range for normalization
+        
+    Returns:
+        Beta fraction (0-1), where 0.25 = 25% of power in beta
+    """
+    # Remove burn-in
+    valid_V = V_trace[burn_steps:]
+    
+    # LFP proxy: mean across neurons
+    lfp = jnp.mean(valid_V, axis=1)
+    
+    # Remove DC offset
+    lfp = lfp - jnp.mean(lfp)
+    
+    # FFT
+    fft_vals = jnp.fft.rfft(lfp)
+    freqs = jnp.fft.rfftfreq(len(lfp), d=dt_ms / 1000.0)
+    
+    # Power spectral density
+    psd = jnp.abs(fft_vals) ** 2
+    
+    # Beta band power
+    beta_idx = (freqs >= beta_range[0]) & (freqs <= beta_range[1])
+    beta_power = jnp.sum(psd[beta_idx])
+    
+    # Total power in range
+    total_idx = (freqs >= total_range[0]) & (freqs <= total_range[1])
+    total_power = jnp.sum(psd[total_idx])
+    
+    # Fraction
+    if total_power > 0:
+        beta_fraction = beta_power / total_power
+    else:
+        beta_fraction = 0.0
+    
+    # Handle NaN/Inf
+    if jnp.isnan(beta_fraction) or jnp.isinf(beta_fraction):
+        return 0.0
+    
+    return float(beta_fraction)
+
+
+def compute_beta_fraction_all(V_dict, dt_ms: float, burn_steps: int = 1000):
+    """
+    Compute beta fraction for all populations.
+    
+    Returns:
+        Dict with beta fractions (0-1) for each population
+    """
+    return {
+        'stn': compute_beta_fraction_single_pop(V_dict['V_stn'], dt_ms, burn_steps),
+        'gpe': compute_beta_fraction_single_pop(V_dict['V_gpe'], dt_ms, burn_steps),
+        'gpi': compute_beta_fraction_single_pop(V_dict['V_gpi'], dt_ms, burn_steps),
+    }

@@ -5,22 +5,21 @@ Supports both AdEx and Rubin-Terman HH neurons.
 
 import jax.numpy as jnp
 from typing import Dict, Tuple
+from .synapses_jax import synapse_step
+from .noise_jax import ou_step
 
 
 def network_step(state: Dict, config: Dict, t_ms: float) -> Tuple[Dict, Dict]:
     """
     Single network timestep.
-    
-    Args:
-        state: Current state of all populations and synapses
-        config: Network configuration
-        t_ms: Current time in ms
-        
-    Returns:
-        new_state: Updated state
-        observables: Voltages and spikes for recording
     """
     dt = config['dt_ms']
+    use_hh = config.get('use_hh', False)
+    
+    # Synaptic current scale factor: AdEx uses pA, HH uses μA/cm²
+    # HH currents are ~100-300x smaller in magnitude
+    syn_scale = 0.005 if use_hh else 1.0  # Scale down for HH
+    noise_scale = 0.01 if use_hh else 1.0  # Scale down noise for HH too
     
     # Get step functions
     stn_step = config['neuron_step_fns']['stn']
@@ -36,75 +35,76 @@ def network_step(state: Dict, config: Dict, t_ms: float) -> Tuple[Dict, Dict]:
     # COMPUTE SYNAPTIC CURRENTS
     # =========================================================================
     
-    from .synapses_jax import compute_synaptic_current, update_synapse_state
-    
     # STN receives from GPe (inhibitory)
-    I_syn_stn, syn_state_gpe_stn = compute_synaptic_current(
+    syn_state_gpe_stn, I_syn_stn_raw = synapse_step(
         state['synapses']['gpe_to_stn'],
         config['synapses']['gpe_to_stn'],
         state['spikes_gpe'],
         state['stn']['V']
     )
+    I_syn_stn = I_syn_stn_raw  # STN already uses HH, synapses tuned for it
     
     # GPe receives from STN (excitatory)
-    I_syn_gpe, syn_state_stn_gpe = compute_synaptic_current(
+    syn_state_stn_gpe, I_syn_gpe_raw = synapse_step(
         state['synapses']['stn_to_gpe'],
         config['synapses']['stn_to_gpe'],
         state['spikes_stn'],
         state['gpe']['V']
     )
+    I_syn_gpe = I_syn_gpe_raw * syn_scale
     
     # GPi receives from STN (excitatory) and GPe (inhibitory)
-    I_syn_gpi_from_stn, syn_state_stn_gpi = compute_synaptic_current(
+    syn_state_stn_gpi, I_syn_gpi_from_stn_raw = synapse_step(
         state['synapses']['stn_to_gpi'],
         config['synapses']['stn_to_gpi'],
         state['spikes_stn'],
         state['gpi']['V']
     )
     
-    I_syn_gpi_from_gpe, syn_state_gpe_gpi = compute_synaptic_current(
+    syn_state_gpe_gpi, I_syn_gpi_from_gpe_raw = synapse_step(
         state['synapses']['gpe_to_gpi'],
         config['synapses']['gpe_to_gpi'],
         state['spikes_gpe'],
         state['gpi']['V']
     )
     
-    I_syn_gpi = I_syn_gpi_from_stn + I_syn_gpi_from_gpe
+    I_syn_gpi = (I_syn_gpi_from_stn_raw + I_syn_gpi_from_gpe_raw) * syn_scale
     
     # =========================================================================
     # COMPUTE NOISE CURRENTS
     # =========================================================================
     
-    from .noise_jax import step_ou_noise
+    noise_state_stn, I_noise_stn = ou_step(
+        state['noise']['stn'], config['noise']['stn']
+    )
+    noise_state_gpe, I_noise_gpe_raw = ou_step(
+        state['noise']['gpe'], config['noise']['gpe']
+    )
+    noise_state_gpi, I_noise_gpi_raw = ou_step(
+        state['noise']['gpi'], config['noise']['gpi']
+    )
     
-    noise_state_stn, I_noise_stn = step_ou_noise(
-        state['noise']['stn'], config['noise']['stn'], dt
-    )
-    noise_state_gpe, I_noise_gpe = step_ou_noise(
-        state['noise']['gpe'], config['noise']['gpe'], dt
-    )
-    noise_state_gpi, I_noise_gpi = step_ou_noise(
-        state['noise']['gpi'], config['noise']['gpi'], dt
-    )
+    # Scale noise for HH
+    I_noise_gpe = I_noise_gpe_raw * noise_scale
+    I_noise_gpi = I_noise_gpi_raw * noise_scale
     
     # =========================================================================
-    # STEP NEURONS
+    # STEP STN (Different signature: state_dict, params, dt, I_ext, I_syn, t_ms)
     # =========================================================================
     
-    # STN (Hodgkin-Huxley based)
-    V_stn, n_stn, h_stn, Ca_stn, ref_stn, spikes_stn = stn_step(
-        state['stn']['V'],
-        state['stn']['n'],
-        state['stn']['h'],
-        state['stn']['Ca'],
-        state['stn']['refractory'],
-        I_syn_stn,
-        I_noise_stn,
+    new_stn_state, (V_stn, spikes_stn) = stn_step(
+        state['stn'],
+        stn_params,
         dt,
-        stn_params
+        I_noise_stn,  # I_ext = noise
+        I_syn_stn,    # I_syn
+        t_ms
     )
     
-    # GPe - Check if using HH or AdEx
+    # =========================================================================
+    # STEP GPe - Check if using HH or AdEx
+    # =========================================================================
+    
     if 'Ca' in state['gpe']:
         # Rubin-Terman HH model
         V_gpe, h_gpe, n_gpe, r_gpe, Ca_gpe, spikes_gpe = gpe_step(
@@ -128,14 +128,17 @@ def network_step(state: Dict, config: Dict, t_ms: float) -> Tuple[Dict, Dict]:
             state['gpe']['V'],
             state['gpe']['w'],
             state['gpe']['refractory'],
-            I_syn_gpe,
-            I_noise_gpe,
+            I_syn_gpe_raw,  # Use raw (unscaled) for AdEx
+            I_noise_gpe_raw,
             dt,
             gpe_params
         )
         new_gpe_state = {'V': V_gpe, 'w': w_gpe, 'refractory': ref_gpe}
     
-    # GPi - Check if using HH or AdEx
+    # =========================================================================
+    # STEP GPi - Check if using HH or AdEx
+    # =========================================================================
+    
     if 'Ca' in state['gpi']:
         # Rubin-Terman HH model
         V_gpi, h_gpi, n_gpi, r_gpi, Ca_gpi, spikes_gpi = gpi_step(
@@ -155,42 +158,24 @@ def network_step(state: Dict, config: Dict, t_ms: float) -> Tuple[Dict, Dict]:
         }
     else:
         # AdEx model
+        I_syn_gpi_raw = I_syn_gpi_from_stn_raw + I_syn_gpi_from_gpe_raw
         V_gpi, w_gpi, ref_gpi, spikes_gpi = gpi_step(
             state['gpi']['V'],
             state['gpi']['w'],
             state['gpi']['refractory'],
-            I_syn_gpi,
-            I_noise_gpi,
+            I_syn_gpi_raw,  # Use raw for AdEx
+            I_noise_gpi_raw,
             dt,
             gpi_params
         )
         new_gpi_state = {'V': V_gpi, 'w': w_gpi, 'refractory': ref_gpi}
     
     # =========================================================================
-    # UPDATE SYNAPSE STATES
-    # =========================================================================
-    
-    syn_state_gpe_stn = update_synapse_state(
-        syn_state_gpe_stn, config['synapses']['gpe_to_stn'], dt
-    )
-    syn_state_stn_gpe = update_synapse_state(
-        syn_state_stn_gpe, config['synapses']['stn_to_gpe'], dt
-    )
-    syn_state_stn_gpi = update_synapse_state(
-        syn_state_stn_gpi, config['synapses']['stn_to_gpi'], dt
-    )
-    syn_state_gpe_gpi = update_synapse_state(
-        syn_state_gpe_gpi, config['synapses']['gpe_to_gpi'], dt
-    )
-    
-    # =========================================================================
     # ASSEMBLE NEW STATE
     # =========================================================================
     
     new_state = {
-        'stn': {
-            'V': V_stn, 'n': n_stn, 'h': h_stn, 'Ca': Ca_stn, 'refractory': ref_stn
-        },
+        'stn': new_stn_state,
         'gpe': new_gpe_state,
         'gpi': new_gpi_state,
         'spikes_stn': spikes_stn,
